@@ -4,11 +4,12 @@
 
 **Hunt pack and detection engineering reference for the InfoStealer ecosystem and the fake-PDF-tool delivery cluster.**
 
-`BaoLoader` · `TamperedChef` · `AppSuite-PDF` · `ManualFinder`
+`BaoLoader` · `TamperedChef` · `AppSuite-PDF` · `ManualFinder` · `OneStart` · `EvilAI`
 
 [![MITRE ATT&CK](https://img.shields.io/badge/MITRE-ATT%26CK-red)](https://attack.mitre.org/)
 [![CrowdStrike](https://img.shields.io/badge/CrowdStrike-LogScale-FA0F00)](https://www.crowdstrike.com/)
 [![Microsoft Defender](https://img.shields.io/badge/Microsoft-Defender_XDR-0078D4)](https://learn.microsoft.com/en-us/defender-xdr/)
+[![Sigma](https://img.shields.io/badge/Sigma-Rules-orange)](https://github.com/SigmaHQ/sigma)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 </div>
@@ -25,13 +26,14 @@ Signatures and IOCs rotate in days. Behaviour doesn't. This repo focuses on the 
 
 ## 🔍 Quick access — jump to a query
 
-| Phase | Hunt | Platform |
-| :------------------: | :--- | :---: |
-| 🎯 Execution         | [ClickFix — RunMRU paste](CrowdStrike/ClickFix.md) | CQL |
-| 🔁 Persistence       | [Run/RunOnce key writes](CrowdStrike/RunKey.md) | CQL |
-| 🥷 Defense Evasion | [DLL sideloading pattern](CrowdStrike/DLLsideloading.md) | CQL |
-| 🥷 Defense Evasion | [Malicious code-signing certs](MicrosoftDefenderForEndpoint/MaliciousCodeSigningCert.md) | KQL |
-| 🔑 Credential Access | [The Browser-Credential Chokepoint](CrowdStrike/CredentialAccess.md) | CQL |
+| Phase | Hunt | CrowdStrike (CQL) | Defender (KQL) |
+| :---: | :--- | :---: | :---: |
+| 🎯 Execution | ClickFix — RunMRU paste | [✓](CrowdStrike/ClickFix.md) | [✓](MicrosoftDefenderForEndpoint/ClickFix.md) |
+| 🔁 Persistence | Run/RunOnce key writes | [✓](CrowdStrike/RunKey.md) | [✓](MicrosoftDefenderForEndpoint/RunKey.md) |
+| 🥷 Defense Evasion | DLL sideloading pattern | [✓](CrowdStrike/DLLsideloading.md) | [✓](MicrosoftDefenderForEndpoint/DLLsideloading.md) |
+| 🥷 Defense Evasion | Malicious code-signing certs | [✓](CrowdStrike/MaliciousCodeSigningCert.md) | [✓](MicrosoftDefenderForEndpoint/MaliciousCodeSigningCert.md) |
+| 🔑 Credential Access | The Browser-Credential Chokepoint ⭐ | [✓](CrowdStrike/CredentialAccess.md) | [✓](MicrosoftDefenderForEndpoint/CredentialAccess.md) |
+| 🔑 Credential Access | DCSync via Replication Rights (Sigma) | [Sigma rule](Sigma/dcsync_nonmachine.yml) | — |
 
 ---
 
@@ -41,16 +43,34 @@ Signatures and IOCs rotate in days. Behaviour doesn't. This repo focuses on the 
 AVANTechDay-2026-ThreatHunting/
 │
 ├── 📄 README.md                          ← you are here
-├── 📄 IOCs.csv                           ← historical anchors (see disclaimer)
+├── 📄 LICENSE                            ← MIT
 │
-├── 📁 CrowdStrike/                       ← CQL queries (LogScale)
+├── 📁 CrowdStrike/                       ← CQL queries (LogScale / Falcon)
 │   ├── ClickFix.md
-│   ├── CredentialAccess.md
+│   ├── RunKey.md
 │   ├── DLLsideloading.md
-│   └── RunKey.md
+│   ├── CredentialAccess.md
+│   └── MaliciousCodeSigningCert.md
 │
-└── 📁 MicrosoftDefenderForEndpoint/      ← KQL queries (Defender XDR)
-    └── MaliciousCodeSigningCert.md
+├── 📁 MicrosoftDefenderForEndpoint/      ← KQL queries (Defender XDR)
+│   ├── ClickFix.md
+│   ├── RunKey.md
+│   ├── DLLsideloading.md
+│   ├── CredentialAccess.md
+│   └── MaliciousCodeSigningCert.md
+│
+├── 📁 Sigma/                             ← cross-platform Sigma rules
+│   └── dcsync_nonmachine.yml
+│
+├── 📁 OSINT/
+│   └── urlscan-pivot.md                  ← unmask the lure cluster
+│
+└── 📁 IOCs/                              ← historical anchors only — see disclaimer
+    ├── domains.txt                       (119 lure / hosting domains)
+    ├── c2.txt                            (16 C2 domains)
+    ├── ips.txt                           (14 IP addresses)
+    ├── hashes.txt                        (131 SHA256, 32 SHA1, 1 MD5)
+    └── code-signing.txt                  (35 shell-company publishers)
 ```
 
 ---
@@ -76,21 +96,23 @@ AVANTechDay-2026-ThreatHunting/
 - 🧬 **DLL sideloading** — trusted EXE loads non-trusted DLL from user-writable directory
 - ⏱️ **Sandbox evasion** — scheduled task with >24h delayed first run from non-system parent
 - 🌐 **C2 fronting** — TLS to newly-registered Cloudflare-fronted domain from non-browser PID
+- 🔐 **DCSync** — non-machine, non-service account invokes DS-Replication-Get-Changes(-All)
 
 ---
 
-## 📊 IOCs
-
-Historical anchors only. See [`IOCs.csv`](IOCs.csv) for the full list with timestamps and source attribution.
-
-| Type | Count | Notes |
-| :--- | :---: | :--- |
-| Domains (PDF-tool cluster) | TBD | urlscan.io pivot — `main.<hex>.js` + `/report` fingerprint |
-| C2 domains | TBD | Cloudflare-fronted, newly-registered |
-| File hashes (DLL sideload) | TBD | `msedge_elf.dll`, `CoreMessaging.dll` variants |
-| Code-signing publishers | TBD | shell-company EV certs (LEGION LLC, etc.) |
+## 📊 IOCs — historical anchors
 
 > ⚠️ **These rotate constantly.** Block them, but invest your detection-engineering hours in the [durable invariants](#-the-durable-invariants) above.
+
+| Type | Count | File | Notes |
+| :--- | :---: | :--- | :--- |
+| Domains (lure / hosting) | 119 | [`IOCs/domains.txt`](IOCs/domains.txt) | urlscan.io pivot — `main.<hex>.js` + `/report` fingerprint |
+| C2 domains | 16 | [`IOCs/c2.txt`](IOCs/c2.txt) | Cloudflare-fronted, newly-registered |
+| IP addresses | 14 | [`IOCs/ips.txt`](IOCs/ips.txt) | Cloudflare-fronted ranges — high collateral if blocked |
+| File hashes (SHA256/SHA1/MD5) | 164 | [`IOCs/hashes.txt`](IOCs/hashes.txt) | PDF Editor, ManualFinder, EpiBrowser, Vidar `msedge_elf.dll` |
+| Code-signing publishers | 35 | [`IOCs/code-signing.txt`](IOCs/code-signing.txt) | shell-company EV certs (Malaysia, Panama, UK, HK) |
+
+**Source attribution:** [Truesec (2025-08-27)](https://www.truesec.com/hub/blog/tamperedchef-the-bad-pdf-editor) · [Expel](https://expel.com/blog/the-history-of-appsuite-the-certs-of-the-baoloader-developer/) · [Heimdal](https://heimdalsecurity.com/blog/heimdal-tamperedchef-investigation/) · [WithSecure](https://labs.withsecure.com/publications/tamperedchef) · [LindenSec IoC repo](https://github.com/LindenSec/IoC/tree/main/PDFEditorManualFinder)
 
 ---
 
@@ -102,14 +124,6 @@ Historical anchors only. See [`IOCs.csv`](IOCs.csv) for the full list with times
 
 ---
 
-## 🤝 Stay in touch
-
-Got a hypothesis from your backlog? **Bring it to the AVANTEC apéro** — we'll build a Sigma rule together before you leave. No sales call, no follow-up pitch. Just hands-on.
-
-| | |
-| :--- | :--- |
-| 📧 Email | [salucci@avantec.ch](mailto:salucci@avantec.ch) |
-| 💼 LinkedIn | [Alessandro Salucci](https://www.linkedin.com/in/alessandro-salucci/) |
 | 📝 Blog | [tec-bite.ch](https://www.tec-bite.ch/) |
 
 ---
