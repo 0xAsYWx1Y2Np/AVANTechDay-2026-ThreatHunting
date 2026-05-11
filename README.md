@@ -167,7 +167,11 @@ Both guides include shell one-liners, full working examples for code-signing pub
 
 ---
 
+<div align="center">
+
 | 📝 Blog | [tec-bite.ch](https://www.tec-bite.ch/) |
+
+</div>
 
 ---
 
