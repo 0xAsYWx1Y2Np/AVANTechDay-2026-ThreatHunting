@@ -20,6 +20,8 @@ Per Expel's research, the **BaoLoader** developer alone has cycled through at le
 - Onestart Technologies LLC
 - (see `IOCs/code-signing.txt` for the full list)
 
+> **Schema note:** `AuthenticodeAccount` is populated on `ProcessRollup2` when the sensor enriches Authenticode metadata. If coverage is sparse in your tenant, enrich via `ImageHash`/`ImageHashIOC` joined on `SHA256HashData` — analogous to the KQL `DeviceFileCertificateInfo` SHA1 join.
+
 ## Detection invariants
 
 1. **Known shell-company publishers** — block-list of confirmed-bad signers
@@ -30,11 +32,9 @@ Per Expel's research, the **BaoLoader** developer alone has cycled through at le
 
 ## Query 1 — Block-list of known-bad publishers
 
-```java
-#event_simpleName = ProcessRollup2 event_platform=Win
-// Suspicious shell-company signers (TamperedChef / BaoLoader / EvilAI cluster)
-| AuthenticodeHashData = *
-| AuthenticodeAccount = /(?i)(ECHO\s*INFINI|GLINT\s*SOFTWARE|SUMMIT\s*NEXUS|APOLLO\s*TECHNOLOGIES|CAERUS\s*MEDIA|ONESTART\s*TECHNOLOGIES|DIGITAL\s*PROMOTIONS|ECLIPSE\s*MEDIA|ASTRAL\s*MEDIA|INTERLINK\s*MEDIA|MILLENNIAL\s*MEDIA|BLAZE\s*MEDIA|DRAKE\s*MEDIA|INCREDIBLE\s*MEDIA|REALISTIC\s*MEDIA|AMARYLLIS\s*SIGNAL|SHERLOCK\s*TECH|WHATECH\s*MOBILE|MY\s*TECH\s*MEDIA|SORBET\s*LIVE|BLUE\s*TAKIN|CANDY\s*TECH|RED\s*ROOT|A1A\s*MARKETING|CROWN\s*SKY|CROWD\s*SYNC|BYTE\s*MEDIA|LUME\s*NETWORK)/
+```
+#event_simpleName=ProcessRollup2 event_platform=Win
+| AuthenticodeAccount=/(?i)(ECHO\s*INFINI|GLINT\s*SOFTWARE|SUMMIT\s*NEXUS|APOLLO\s*TECHNOLOGIES|CAERUS\s*MEDIA|ONESTART\s*TECHNOLOGIES|DIGITAL\s*PROMOTIONS|ECLIPSE\s*MEDIA|ASTRAL\s*MEDIA|INTERLINK\s*MEDIA|MILLENNIAL\s*MEDIA|BLAZE\s*MEDIA|DRAKE\s*MEDIA|INCREDIBLE\s*MEDIA|REALISTIC\s*MEDIA|AMARYLLIS\s*SIGNAL|SHERLOCK\s*TECH|WHATECH\s*MOBILE|MY\s*TECH\s*MEDIA|SORBET\s*LIVE|BLUE\s*TAKIN|CANDY\s*TECH|RED\s*ROOT|A1A\s*MARKETING|CROWN\s*SKY|CROWD\s*SYNC|BYTE\s*MEDIA|LUME\s*NETWORK|TAU\s*CENTAURI|SPARROW\s*TIDE|TECHNODENIS|BLACK\s*INDIGO|LONG\s*SOUND|OR\s*KAHOL|ASTRO\s*BRIGHT|MAINSTAY\s*CRYPTO|GRASSROOTS\s*CONSULTING|WORK\s*PRODUCT|PIXEL\s*CATALYST|GLOBAL\s*TECH\s*ALLIES|SIRIUS\s*ONE|SELA\s*LINES|BONY\s*INNOVATION)/
 | table([@timestamp, ComputerName, UserName, FileName, ImageFileName, AuthenticodeAccount, SHA256HashData])
 | sort(@timestamp, order=desc)
 ```
@@ -43,28 +43,26 @@ Per Expel's research, the **BaoLoader** developer alone has cycled through at le
 
 ## Query 2 — First-seen publisher anomaly
 
-Detects executables signed by publishers never previously seen in your tenant.
+Run over a **90-day lookback** (or longer). Returns publishers whose `FirstSeen` falls inside the last 7 days — i.e. never observed in the tenant prior to that. The `>1` execution filter strips one-off noise; raise to 3+ if results are still too chatty.
 
-```java
-#event_simpleName = ProcessRollup2 event_platform=Win
-| AuthenticodeAccount = *
-// Build a 90-day baseline of known publishers
-| join(
-    query={
-      #event_simpleName = ProcessRollup2 event_platform=Win
-      | bucket(span=90d, function=count())
-      | groupBy([AuthenticodeAccount], function=[count(as=baseline_count)])
-      | baseline_count > 5
-    },
-    field=AuthenticodeAccount,
-    include=baseline_count,
-    mode=left
-  )
-// Surface only the publishers we have NEVER seen before
-| baseline_count = ""
-// Suspicious paths only
-| ImageFileName = /(?i)\\(Users\\[^\\]+\\(AppData|Downloads|Desktop)|Users\\Public|ProgramData|Windows\\Temp)\\/
-| table([@timestamp, ComputerName, UserName, AuthenticodeAccount, FileName, ImageFileName, SHA256HashData])
+```
+#event_simpleName=ProcessRollup2 event_platform=Win
+| AuthenticodeAccount=*
+| ImageFileName=/(?i)\\(Users\\[^\\]+\\(AppData|Downloads|Desktop)|Users\\Public|ProgramData|Windows\\Temp)\\/
+| groupBy([AuthenticodeAccount],
+          function=[
+            min(@timestamp, as=FirstSeen),
+            max(@timestamp, as=LastSeen),
+            count(as=ExecutionCount),
+            count(field=aid, distinct=true, as=UniqueDevices),
+            count(field=SHA256HashData, distinct=true, as=UniqueBinaries),
+            collect(fields=[FileName], limit=10),
+            collect(fields=[ComputerName], limit=10)
+          ])
+// Publisher first observed within the last 7 days of the search window
+| FirstSeen > (now() - 7*24*60*60*1000)
+| ExecutionCount > 1
+| sort(UniqueDevices, order=desc, limit=200)
 ```
 
 ---

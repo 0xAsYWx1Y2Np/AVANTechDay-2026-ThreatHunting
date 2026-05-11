@@ -10,38 +10,25 @@
 
 Attackers obtain valid Authenticode certificates from CAs by registering shell companies in jurisdictions like Panama, Malaysia, Hong Kong, the UK, and the US. Per Expel's research, the **BaoLoader** developer alone has cycled through at least **26 code-signing certificates** in 7 years.
 
+> **Note:** The `Signer`, `SignerHash`, and `IsRootSignerMicrosoft` columns exist **only** on `DeviceFileCertificateInfo` — they are not directly available on `DeviceProcessEvents` or `DeviceImageLoadEvents`. Always join via `SHA1` with `arg_max` to avoid fan-out on multiple cert observations per binary.
+
 ## Query 1 — Block-list of known-bad publishers
 
-```kql
+```java
 let SuspiciousSigners = dynamic([
-    "ECHO INFINI SDN. BHD.",
-    "GLINT SOFTWARE SDN. BHD.",
-    "Summit Nexus Holdings LLC",
-    "Apollo Technologies Inc.",
-    "Caerus Media LLC",
-    "Onestart Technologies LLC",
-    "Digital Promotions Sdn. Bhd.",
-    "Eclipse Media Inc.",
-    "Astral Media Inc",
-    "Interlink Media Inc.",
-    "Millennial Media Inc.",
-    "Blaze Media Inc.",
-    "Drake Media Inc",
-    "Incredible Media Inc",
-    "Realistic Media Inc.",
-    "Amaryllis Signal Ltd",
-    "Sherlock Tech Ltd",
-    "Whatech Mobile Co., Limited",
-    "My Tech Media Ltd",
-    "Sorbet Live Ltd",
-    "Blue Takin Ltd",
-    "Candy Tech Ltd",
-    "Red Root Ltd",
-    "A1A Marketing Ltd.",
-    "Crown Sky LLC",
-    "Crowd Sync LLC",
-    "Byte Media",
-    "Lume Network Sdn Bhd"
+    "ECHO INFINI SDN. BHD.","GLINT SOFTWARE SDN. BHD.","Summit Nexus Holdings LLC",
+    "Apollo Technologies Inc.","Caerus Media LLC","Onestart Technologies LLC",
+    "Digital Promotions Sdn. Bhd.","Eclipse Media Inc.","Astral Media Inc",
+    "Interlink Media Inc.","Millennial Media Inc.","Blaze Media Inc.",
+    "Drake Media Inc","Incredible Media Inc","Realistic Media Inc.",
+    "Amaryllis Signal Ltd","Sherlock Tech Ltd","Whatech Mobile Co., Limited",
+    "My Tech Media Ltd","Sorbet Live Ltd","Blue Takin Ltd","Candy Tech Ltd",
+    "Red Root Ltd","A1A Marketing Ltd.","Crown Sky LLC","Crowd Sync LLC",
+    "Byte Media","BYTE MEDIA SDN BHD","Lume Network Sdn Bhd","TAU CENTAURI LTD",
+    "SPARROW TIDE LTD","TECHNODENIS LTD","BLACK INDIGO LTD","LONG SOUND LTD",
+    "OR KAHOL LTD","ASTRO BRIGHT LTD","MAINSTAY CRYPTO LLC",
+    "GRASSROOTS CONSULTING GROUP LLC","WORK PRODUCT INC","PIXEL CATALYST MEDIA LLC",
+    "GLOBAL TECH ALLIES LTD","SIRIUS ONE LTD","SELA LINES LTD","BONY INNOVATION LTD"
 ]);
 let SuspiciousBinaries =
     DeviceFileCertificateInfo
@@ -51,23 +38,17 @@ let SuspiciousBinaries =
     | summarize arg_max(Timestamp, Signer, SignerHash, IsTrusted, IsSigned) by SHA1;
 DeviceProcessEvents
 | where Timestamp > ago(30d)
-| join kind=inner SuspiciousBinaries on SHA1
-| project
-    Timestamp,
-    DeviceName,
-    AccountName,
-    FileName,
-    FolderPath,
-    Signer,
-    SignerHash,
-    IsTrusted,
-    SHA256
+| where isnotempty(SHA1)
+| project Timestamp, DeviceName, AccountName, FileName, FolderPath, SHA1, SHA256
+| join kind=innerunique hint.shufflekey=SHA1 SuspiciousBinaries on SHA1
+| project Timestamp, DeviceName, AccountName, FileName, FolderPath,
+          Signer, SignerHash, IsTrusted, SHA256
 | sort by Timestamp desc
 ```
 
 ## Query 2 — First-seen publisher anomaly
 
-```kql
+```java
 let baseline =
     DeviceFileCertificateInfo
     | where Timestamp between (ago(120d) .. ago(30d))
@@ -85,6 +66,14 @@ DeviceProcessEvents
     | summarize arg_max(Timestamp, Signer, IsSigned, IsTrusted) by SHA1
 ) on SHA1
 | where Signer !in (baseline)
-| project Timestamp, DeviceName, AccountName, FileName, FolderPath, Signer, IsSigned, IsTrusted, SHA256
-| sort by Timestamp desc
+| summarize
+    ExecutionCount = count(),
+    UniqueDevices = dcount(DeviceName),
+    UniqueBinaries = dcount(SHA1),
+    FirstSeen = min(Timestamp),
+    LastSeen = max(Timestamp),
+    SampleFiles = make_set(FileName, 10),
+    IsTrusted = any(IsTrusted)
+    by Signer
+| sort by UniqueDevices desc, ExecutionCount desc
 ```
