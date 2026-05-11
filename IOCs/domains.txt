@@ -50,14 +50,18 @@ inst.productivity-tools.ai
 itpdf.com
 itpdf.net
 justpdflab.com
+kitchencanvas.com
 ltdpdf.com
 ltdpdf.net
 manualfinder.app
+manualmate.app
+manualmate.com
 manualsbyonestart.com
 meal-formula.com
 micromacrotechbase.com
 myeditorpdf.com
 mypdfonestart.com
+mypdfswitch.com
 notawordapp.com
 onestart.ai
 onestartbrowser.com
@@ -70,6 +74,7 @@ pdf-star.com
 pdf-tool.appsuites.ai
 pdfadmin.com
 pdfappsuite.com
+pdfarchitect.org
 pdfartisan.com
 pdfclickapp.com
 pdfdocapp.com
@@ -78,8 +83,10 @@ pdfeditorplus.com
 pdffacts.com
 pdffacts.net
 pdffilehub.net
+pdfgrip.com
 pdfhubspot.com
 pdfideas.com
+pdfimage.com
 pdfmeta.com
 pdfonestart.com
 pdfonestarthub.com
@@ -102,6 +109,7 @@ pwrtail.com
 quickfastpdf.com
 quickpdfmanuals.com
 rani.climatcon.com
+recipeup.com
 scholarpdf.com
 smarteasypdf.com
 smartmanualspdf.com
@@ -110,8 +118,11 @@ smartviewpdf.com
 sparkonsoft.com
 sparksoftinc.com
 sparkware-inc.com
+themanualscentral.com
 thepdfbox.com
+tiprecipe.com
 transmitcdnzion.com
+tumgik.com
 typdf.com
 vault.appsuites.ai
 vo.takelecon.com
