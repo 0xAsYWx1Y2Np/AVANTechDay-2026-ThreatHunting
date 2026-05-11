@@ -17,12 +17,13 @@ This makes RunMRU the durable detection invariant for ClickFix, regardless of:
 ## Query
 
 ```java
-#event_simpleName = RegSystemConfigValueUpdate
-| RegObjectName = /\\REGISTRY\\USER\\.+\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU/i
-| rename(field="RegStringValue", as="RunCommand")
-| length("RunCommand", as=RunCommandLength)
+#event_simpleName=RegSystemConfigValueUpdate
+| RegObjectName=/\\REGISTRY\\USER\\.+\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU/i
+| RunCommand := RegStringValue
+| RunCommandLength := length(RunCommand)
 | RunCommandLength > 50
 // LOLBin / common ClickFix payload markers
-| RunCommand = /(?i)(powershell|pwsh|cmd|mshta|wscript|cscript|certutil|bitsadmin|curl|wget|msbuild|conhost|wt\.exe|iex|invoke-expression|invokewebrequest|downloadstring|frombase64string|hidden|encodedcommand|nslookup|odbcad32)/
+| RunCommand=/(?i)(powershell|pwsh|cmd|mshta|wscript|cscript|certutil|bitsadmin|curl|wget|msbuild|conhost|wt\.exe|iex|invoke-expression|invokewebrequest|downloadstring|frombase64string|hidden|encodedcommand|nslookup|odbcad32)/
 | table([@timestamp, ComputerName, UserName, RunCommand, RunCommandLength])
+| sort(@timestamp, order=desc)
 ```

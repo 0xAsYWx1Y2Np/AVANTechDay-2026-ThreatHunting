@@ -14,58 +14,21 @@ When the trusted binary executes from a user-writable path, Windows loads the ma
 
 > **Trusted, signed EXE in a user-writable path** + **unsigned DLL in the same directory** + **same process** = sideloading.
 
-## Query
+---
+
+## Query 1 — Trusted binary in anomalous path + unsigned DLL load
+
+This is the durable detection. Targets [HijackLibs](https://hijacklibs.net/)-documented binaries running from user-writable locations, joined to unsigned DLL loads inside the same process.
 
 ```java
-// CQL: DLL sideloading — trusted binary loads unsigned DLL from user-writable path
-// Step 1 — process executions of known sideload-target binaries
-| target := { #event_simpleName = ProcessRollup2 }
-| target.FileName = /(?i)\\(msedge|chrome|firefox|teams|onedrive|slack|zoom|vlc|notepad\+\+|code|winword|excel|powerpnt|outlook|acrobat|anydesk|teamviewer)\.exe$/
-// Step 2 — running from a user-writable path (NOT Program Files / System32)
-| target.ImageFileName = /(?i)\\(Users\\[^\\]+\\(Downloads|Desktop|Documents|AppData)|Users\\Public|ProgramData|Windows\\Temp)\\/
-// Step 3 — joined with module load events (selfJoin on aid + ProcessId)
-| selfJoin(
-    field=[aid, TargetProcessId],
-    where=[
-      { #event_simpleName = ProcessRollup2 },
-      { #event_simpleName = ImageHash AND PrimaryModule = 0 AND SignInfoFlags != 0 }
-    ]
-  )
-// Step 4 — file metadata: name mismatches PE header OriginalFileName (manipulated DLL)
-| FileName != OriginalFilename
-// Step 5 — Mark-of-the-Web (downloaded from internet — extra suspicion)
-| ZoneIdentifier = 3
-| table([
-    @timestamp,
-    ComputerName,
-    UserName,
-    target.FileName,
-    target.ImageFileName,
-    DLL.FileName,
-    DLL.SignInfoFlags,
-    OriginalFilename
-  ])
-```
-
-## Sideloading targets (HijackLibs reference)
-
-25+ documented targets, including: `msedge.exe`, `chrome.exe`, `firefox.exe`, `teams.exe`, `OneDrive.exe`, `slack.exe`, `zoom.exe`, `vlc.exe`, `notepad++.exe`, `code.exe`, `winword.exe`, `excel.exe`, `powerpnt.exe`, `outlook.exe`, `Acrobat.exe`, `AnyDesk.exe`, `TeamViewer.exe`.
-
-See [HijackLibs](https://hijacklibs.net/) for the full catalog.
-
-```java
-// Hunt: Trusted Signed Binary Executing from Anomalous Path
-// Scenario: legitimate signed binary (e.g. msedge.exe) dropped into a user-writable
-// location next to a malicious DLL — classic DLL sideloading.
-#event_simpleName=ProcessRollup2 event_platform=Win
+#event_simpleName=ProcessRollup2
 | OriginalFilename=*
 | FileNameLower := lower(FileName)
 | OriginalFilenameLower := lower(OriginalFilename)
 // Binary is NOT renamed — keeps its real PE name
 | FileNameLower = OriginalFilenameLower
 // Curated list of signed binaries with documented sideloading abuse
-// (sources: HijackLibs, MITRE ATT&CK, public CTI reports)
-| in(field="FileNameLower", values=[
+| in(FileNameLower, values=[
     "msedge.exe", "chrome.exe", "firefox.exe", "iexplore.exe",
     "onedrive.exe", "onedrivestandaloneupdater.exe",
     "teams.exe", "slack.exe", "zoom.exe",
@@ -75,47 +38,70 @@ See [HijackLibs](https://hijacklibs.net/) for the full catalog.
     "wermgr.exe", "dbgsrv.exe", "rdpclip.exe",
     "anydesk.exe", "teamviewer.exe"
   ])
-// Running from a user-writable / non-standard path
-| in(field="FilePath", values=[
-    "*\\Users\\Public\\*",
-    "*\\Users\\*\\AppData\\Local\\Temp\\*",
-    "*\\Users\\*\\AppData\\Roaming\\*",
-    "*\\Users\\*\\AppData\\Local\\*",
-    "*\\Users\\*\\Downloads\\*",
-    "*\\Users\\*\\Desktop\\*",
-    "*\\ProgramData\\*",
-    "*\\Windows\\Temp\\*",
-    "*\\PerfLogs\\*"
-  ])
+// Running from a user-writable / non-standard path (regex, not in() — in() is exact-match)
+| ImageFileName=/(?i)\\(Users\\Public|Users\\[^\\]+\\(AppData|Downloads|Desktop)|ProgramData|Windows\\Temp|PerfLogs)\\/
 // Pivot: non-system DLL loaded INTO this process from the same kind of suspicious path
 | join(
     query={
-      #event_simpleName=/^(ClassifiedModuleLoad|UnsignedModuleLoad)$/ event_platform=Win
+      #event_simpleName=/ClassifiedModuleLoad|UnsignedModuleLoad/i
       | PrimaryModule=0
       | ImageFileName=/(?i)\.dll$/
-      | in(field="ImageFileName", values=[
-          "*\\Users\\Public\\*",
-          "*\\Users\\*\\AppData\\Local\\Temp\\*",
-          "*\\Users\\*\\AppData\\Roaming\\*",
-          "*\\Users\\*\\AppData\\Local\\*",
-          "*\\Users\\*\\Downloads\\*",
-          "*\\Users\\*\\Desktop\\*",
-          "*\\ProgramData\\*",
-          "*\\Windows\\Temp\\*",
-          "*\\PerfLogs\\*"
-        ])
-      | rename(field="FileName", as="DLL_FileName")
-      | rename(field="ImageFileName", as="DLL_Path")
-      | rename(field="SHA256HashData", as="DLL_SHA256")
+      | ImageFileName=/(?i)\\(Users\\Public|Users\\[^\\]+\\(AppData|Downloads|Desktop)|ProgramData|Windows\\Temp|PerfLogs)\\/
+      | DLL_FileName  := FileName
+      | DLL_Path      := ImageFileName
+      | DLL_SHA256    := SHA256HashData
     },
     field=[aid, TargetProcessId],
     key=[aid, ContextProcessId],
     include=[DLL_FileName, DLL_Path, DLL_SHA256]
   )
 | DetectionType := "TrustedBinary_AnomalousPath"
-| groupBy([
-    ComputerName, UserName, ParentBaseFileName,
-    FileName, OriginalFilename, FilePath,
-    DLL_FileName, DLL_Path, DLL_SHA256, DetectionType
-  ])
+| groupBy(
+    [ComputerName, UserName, ParentBaseFileName,
+     FileName, OriginalFilename, ImageFileName,
+     DLL_FileName, DLL_Path, DLL_SHA256, DetectionType],
+    function=[
+      count(as=LoadCount),
+      min(@timestamp, as=FirstSeen),
+      max(@timestamp, as=LastSeen)
+    ]
+  )
+| sort(LastSeen, order=desc)
 ```
+
+---
+
+## Query 2 — Renamed signed binary (low-volume, high-fidelity)
+
+Catches the inverse pattern: a trusted EXE has been **renamed** by the attacker (e.g. `msedge.exe` → `update.exe`) but still keeps its original PE-header `OriginalFilename`. This is rarer but extremely high-fidelity.
+
+```java
+#event_simpleName=ProcessRollup2
+| OriginalFilename=*
+| FileNameLower := lower(FileName)
+| OriginalFilenameLower := lower(OriginalFilename)
+// Name on disk DIFFERS from PE-header OriginalFilename → renamed binary
+| FileNameLower != OriginalFilenameLower
+| in(OriginalFilenameLower, values=[
+    "msedge.exe", "chrome.exe", "firefox.exe",
+    "onedrive.exe", "teams.exe", "slack.exe", "zoom.exe",
+    "vlc.exe", "notepad++.exe", "code.exe",
+    "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe",
+    "anydesk.exe", "teamviewer.exe"
+  ])
+| ImageFileName=/(?i)\\(Users\\Public|Users\\[^\\]+\\(AppData|Downloads|Desktop)|ProgramData|Windows\\Temp|PerfLogs)\\/
+| DetectionType := "RenamedSignedBinary"
+| table([@timestamp, ComputerName, UserName, ParentBaseFileName,
+         FileName, OriginalFilename, ImageFileName, CommandLine, DetectionType])
+| sort(@timestamp, order=desc)
+```
+
+> **OriginalFilename reliability:** Populated reliably on `ProcessRollup2`. **Not reliable on `ClassifiedModuleLoad` / `UnsignedModuleLoad`** — so don't filter on it there.
+
+---
+
+## Sideloading targets (HijackLibs reference)
+
+25+ documented targets, including: `msedge.exe`, `chrome.exe`, `firefox.exe`, `teams.exe`, `OneDrive.exe`, `slack.exe`, `zoom.exe`, `vlc.exe`, `notepad++.exe`, `code.exe`, `winword.exe`, `excel.exe`, `powerpnt.exe`, `outlook.exe`, `Acrobat.exe`, `AnyDesk.exe`, `TeamViewer.exe`.
+
+See [HijackLibs](https://hijacklibs.net/) for the full catalog.

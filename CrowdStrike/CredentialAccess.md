@@ -21,27 +21,27 @@ The attacker **must** open these files to harvest browser credentials. There is 
 
 ```java
 // Hunt: InfoStealer — non-browser process touches browser credential SQLite DBs
-#event_simpleName=/^FileOpenInfo$/ event_platform=Win
+#event_simpleName=FileOpenInfo
 
 // --- The credential goldmine: Chromium SQLite DBs + Mozilla equivalents ---
-| TargetFileName=/(?i)\\(Login\sData|Cookies|Web\sData|Local\sState|formhistory\.sqlite|key4\.db|signons\.sqlite|logins\.json|cookies\.sqlite|places\.sqlite)$/
+| TargetFileName=/(?i)\\(Login Data|Cookies|Web Data|Local State|formhistory\.sqlite|key4\.db|signons\.sqlite|logins\.json|cookies\.sqlite|places\.sqlite)$/
 
 // --- Must live inside a real browser user-data tree ---
-| TargetFileName=/(?i)\\(Google\\Chrome|Microsoft\\Edge|BraveSoftware|Mozilla\\Firefox|Vivaldi|Opera\sSoftware|Chromium|Yandex|Arc|CocCoc)\\/
+| TargetFileName=/(?i)\\(Google\\Chrome|Microsoft\\Edge|BraveSoftware|Mozilla\\Firefox|Vivaldi|Opera Software|Chromium|Yandex|Arc|CocCoc)\\/
 
 // --- Allow ONLY browsers themselves + a tiny set of OS scanners ---
 | ContextBaseFileName!=/(?i)^(chrome\.exe|msedge\.exe|brave\.exe|firefox\.exe|opera\.exe|vivaldi\.exe|arc\.exe|browser\.exe|yandex\.exe|chromium\.exe|MsMpEng\.exe|MpDefenderCoreService\.exe|SearchProtocolHost\.exe|SearchIndexer\.exe|explorer\.exe|backgroundTaskHost\.exe)$/
 
 // --- Suppress legitimate Program Files and System paths ---
-| ContextImageFileName!=/(?i)\\Program\sFiles(\s\(x86\))?\\/
+| ContextImageFileName!=/(?i)\\Program Files( \(x86\))?\\/
 | ContextImageFileName!=/(?i)\\Windows\\(System32|SysWOW64|WinSxS)\\/
 
 // --- Risk classification: process running from user-writable path = HIGH ---
 | case {
-    ContextImageFileName=/(?i)\\(Users\\[^\\]+\\(AppData|Downloads|Desktop)|Users\\Public|ProgramData|Windows\\Temp)\\/i
-    | RiskPath := "HIGH";
+    ContextImageFileName=/(?i)\\(Users\\[^\\]+\\(AppData|Downloads|Desktop)|Users\\Public|ProgramData|Windows\\Temp)\\/
+      | RiskPath := "HIGH";
     *
-    | RiskPath := "MEDIUM"
+      | RiskPath := "MEDIUM"
   }
 
 // --- Tenant enrichment from cid_name lookup ---
@@ -51,14 +51,16 @@ The attacker **must** open these files to harvest browser credentials. There is 
       | groupBy([cid], function=selectLast(name), limit=max)
       | CustomerName := name
     },
-    key=cid, field=cid, include=CustomerName
+    field=cid,
+    key=cid,
+    include=[CustomerName]
   )
 
 | groupBy(
     [CustomerName, cid, ComputerName, UserName, ContextBaseFileName, ContextImageFileName, RiskPath],
     function=[
       count(as=hit_count),
-      collect([TargetFileName], separator=", "),
+      collect(fields=[TargetFileName], separator=", "),
       min(@timestamp, as=first_seen),
       max(@timestamp, as=last_seen)
     ],
@@ -66,10 +68,9 @@ The attacker **must** open these files to harvest browser credentials. There is 
   )
 
 | files_touched := TargetFileName
-| select([CustomerName, ComputerName, UserName, ContextBaseFileName,
-          ContextImageFileName, RiskPath, hit_count, files_touched,
-          first_seen, last_seen])
-| sort(RiskPath, order=desc)
+| table([CustomerName, ComputerName, UserName, ContextBaseFileName,
+         ContextImageFileName, RiskPath, hit_count, files_touched,
+         first_seen, last_seen])
 | sort(hit_count, order=desc, limit=1000)
 ```
 
