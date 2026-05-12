@@ -1,4 +1,4 @@
-# Malicious Chrome Extensions (KQL)
+# Malicious Extensions (KQL)
 
 **MITRE ATT&CK:** [T1176](https://attack.mitre.org/techniques/T1176/) — Browser Extensions
 **Tactic:** [TA0003](https://attack.mitre.org/tactics/TA0003/) — Persistence
@@ -9,14 +9,15 @@
 
 ## Hypothesis
 
-Malicious Chrome (and Chromium-based Edge / Brave) extensions land on disk under a deterministic path that contains the **32-character extension ID** (`[a-p]{32}`). Whether the extension was installed via Web Store, sideloaded as an unpacked folder, or force-installed via `ExtensionInstallForcelist` policy, the ID is a forced-telemetry artifact:
+Malicious Chrome (and Chromium-based) extensions land on disk under a deterministic path that contains the **32-character extension ID** (`[a-p]{32}`):
 
-- `…\Google\Chrome\User Data\<Profile>\Extensions\<id>\<version>\`
-- `…\Microsoft\Edge\User Data\<Profile>\Extensions\<id>\<version>\`
-- `HKLM\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist\*`
-- `HKLM\SOFTWARE\(Wow6432Node\)?Google\Chrome\Extensions\<id>`
+- `\Google\Chrome\User Data\<Profile>\Extensions\<id>\<version>\`
+- `\Microsoft\Edge\User Data\<Profile>\Extensions\<id>\<version>\`
+- Registry policy: `SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist`
 
-Combined with a curated bad-ID list, this is high-confidence and survives the bundle being repacked or renamed.
+The extension ID is derived from the SHA-256 of the public key in the CRX — it is a forced telemetry artifact.
+
+The canonical bad-ID list lives in [`IOCs/chrome-extensions.txt`](../IOCs/chrome-extensions.txt) (112 IDs) and [`IOCs/csv/chrome-extensions.csv`](../IOCs/csv/chrome-extensions.csv).
 
 ---
 
@@ -101,66 +102,95 @@ DeviceFileEvents
 | sort by Timestamp desc
 ```
 
-## Query 2 — Force-installed via Group Policy / MDM
-
-Detects writes to the `ExtensionInstallForcelist` policy key — used both by legitimate admin pushes **and** by malware that survives reinstall by setting policy.
+## Query 1 — Block-list hit via `externaldata` (recommended)
 
 ```kql
-let BadExtensionIds = dynamic([
-    "obifanppcpchlehkjipahhphbcbjekfa", "fpeabamapgecnidibdmjoepaiehokgda",
-    "pcdgkgbadeggbnodegejccjffnoakcoh", "jkphinfhmfkckkcnifhjiplhfoiefffl"
-    // Add full list from IOCs/chrome-extensions.txt as needed
-]);
-DeviceRegistryEvents
-| where Timestamp > ago(30d)
-| where RegistryKey has_any (
-    @"SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist",
-    @"SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist",
-    @"SOFTWARE\Policies\BraveSoftware\Brave\ExtensionInstallForcelist"
-  )
-| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
-// RegistryValueData = "<extension_id>;<update_url>"
-| extend ExtensionId = tostring(extract(@"([a-p]{32})", 1, RegistryValueData))
-| where isnotempty(ExtensionId)
-| where ExtensionId in (BadExtensionIds) or RegistryValueData has "clients2.google.com/service/update2/crx"
-| project Timestamp, DeviceName, AccountName=InitiatingProcessAccountName,
-          ExtensionId, RegistryKey, RegistryValueName, RegistryValueData,
-          InitiatingProcessFileName, InitiatingProcessCommandLine
-| sort by Timestamp desc
-```
-
-## Query 3 — Tenant-wide extension inventory + bad-list join
-
-A compact "did anyone install one of these" rollup. Useful for incident response or pre-deployment baselining.
-
-```kql
-let BadExtensionIds = externaldata(ExtensionId:string)
-    // OPTIONAL: replace with a static dynamic([...]) list if you do not host the IOCs externally
-    [@"https://raw.githubusercontent.com/0xAsYWx1Y2Np/AVANTechDay-2026-ThreatHunting/main/IOCs/extensions.txt"]
-    with (format="txt", ignoreFirstRecord=false);
+let BadExtensionIds =
+    externaldata(extension_id: string)
+    [@"https://raw.githubusercontent.com/0xAsYWx1Y2Np/AVANTechDay-2026-ThreatHunting/main/IOCs/csv/chrome-extensions.csv"]
+    with (format="csv", ignoreFirstRecord=true)
+    | project extension_id = tolower(trim(@"\s+", extension_id))
+    | summarize by extension_id;
 DeviceFileEvents
 | where Timestamp > ago(30d)
-| where FolderPath matches regex @"(?i)\\User Data\\[^\\]+\\Extensions\\[a-p]{32}\\"
-| extend ExtensionId = tostring(extract(@"\\Extensions\\([a-p]{32})\\", 1, FolderPath))
-| where isnotempty(ExtensionId)
-| join kind=inner (BadExtensionIds | where ExtensionId matches regex @"^[a-p]{32}$") on ExtensionId
-| summarize FirstSeen=min(Timestamp), LastSeen=max(Timestamp), Hits=count()
-    by DeviceName, AccountName=InitiatingProcessAccountName, ExtensionId
+| where ActionType == "FolderCreated"
+| where FolderPath matches regex @"(?i)\\(Google\\Chrome|Microsoft\\Edge|BraveSoftware\\Brave-Browser|Chromium|Vivaldi|Opera\sSoftware|Yandex)\\.*\\Extensions\\[a-p]{32}$"
+| extend ExtensionId = tolower(extract(@"\\Extensions\\([a-p]{32})$", 1, FolderPath))
+| where ExtensionId in (BadExtensionIds)
+| summarize FirstSeen = min(Timestamp),
+            LastSeen = max(Timestamp),
+            DeviceCount = dcount(DeviceId),
+            Devices = make_set(DeviceName, 20),
+            Users = make_set(InitiatingProcessAccountName, 10),
+            FolderSamples = make_set(FolderPath, 5)
+    by ExtensionId
 | sort by LastSeen desc
 ```
 
-## Query 4 — CRX download from the Web Store
+---
 
-Picks up the actual `.crx` fetch from Google's update server. The extension ID is in the query string (`x=id%3D<id>%26…`).
+## Query 2 — Force-installed via Group Policy / MDM
 
 ```kql
+let BadExtensionIds =
+    externaldata(extension_id: string)
+    [@"https://raw.githubusercontent.com/0xAsYWx1Y2Np/AVANTechDay-2026-ThreatHunting/main/IOCs/csv/chrome-extensions.csv"]
+    with (format="csv", ignoreFirstRecord=true)
+    | project extension_id = tolower(trim(@"\s+", extension_id))
+    | summarize by extension_id;
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey matches regex @"(?i)\\SOFTWARE\\Policies\\(Google\\Chrome|Microsoft\\Edge|BraveSoftware\\Brave)\\ExtensionInstallForcelist"
+// Policy value format: "<extid>;https://clients2.google.com/service/update2/crx"
+| extend ExtensionId = tolower(extract(@"([a-p]{32})", 1, RegistryValueData))
+| where isnotempty(ExtensionId) and ExtensionId in (BadExtensionIds)
+| project Timestamp, DeviceName, InitiatingProcessAccountName,
+          ExtensionId, RegistryKey, RegistryValueName, RegistryValueData
+| sort by Timestamp desc
+```
+
+---
+
+## Query 3 — Tenant-wide extension inventory (no bad-list)
+
+The smartest detection in the pack. Surfaces every extension directory creation across the tenant with first / last seen and device count. Use to baseline, or to triage incidents where the actor's ID isn't in any public bad-list yet.
+
+`DeviceCount < 5` for novelty detection — catches tomorrow's campaign before the bad-list updates.
+
+```kql
+DeviceFileEvents
+| where Timestamp > ago(30d)
+| where ActionType == "FolderCreated"
+| where FolderPath matches regex @"(?i)\\(Google\\Chrome|Microsoft\\Edge|BraveSoftware\\Brave-Browser|Chromium|Vivaldi|Opera\sSoftware|Yandex)\\.*\\Extensions\\[a-p]{32}$"
+| extend ExtensionId = tolower(extract(@"\\Extensions\\([a-p]{32})$", 1, FolderPath))
+| summarize FirstSeen = min(Timestamp),
+            LastSeen = max(Timestamp),
+            InstallCount = count(),
+            DeviceCount = dcount(DeviceId),
+            Devices = make_set(DeviceName, 20)
+    by ExtensionId
+| where DeviceCount < 5    // novelty filter: low-spread extensions are higher signal
+| sort by LastSeen desc
+```
+
+---
+
+## Query 4 — CRX download from the Web Store
+
+```kql
+let BadExtensionIds =
+    externaldata(extension_id: string)
+    [@"https://raw.githubusercontent.com/0xAsYWx1Y2Np/AVANTechDay-2026-ThreatHunting/main/IOCs/csv/chrome-extensions.csv"]
+    with (format="csv", ignoreFirstRecord=true)
+    | project extension_id = tolower(trim(@"\s+", extension_id))
+    | summarize by extension_id;
 DeviceNetworkEvents
 | where Timestamp > ago(30d)
-| where RemoteUrl has "clients2.google.com/service/update2/crx"
-   or RemoteUrl has "edge.microsoft.com/extensionwebstorebase/v1/crx"
-| extend ExtensionId = tostring(extract(@"(?:id%3D|id=)([a-p]{32})", 1, RemoteUrl))
-| where isnotempty(ExtensionId)
-| project Timestamp, DeviceName, AccountName=InitiatingProcessAccountName,
+| where RemoteUrl matches regex @"(?i)(clients2\.google\.com/service/update2/crx|edge\.microsoft\.com/extensionwebstorebase/v1/crx)"
+| extend ExtensionId = tolower(extract(@"(?:id%3D|id=)([a-p]{32})", 1, RemoteUrl))
+| where isnotempty(ExtensionId) and ExtensionId in (BadExtensionIds)
+| project Timestamp, DeviceName, InitiatingProcessAccountName,
           ExtensionId, RemoteUrl, InitiatingProcessFileName
 | sort by Timestamp desc
 ```
@@ -169,17 +199,24 @@ DeviceNetworkEvents
 
 ## Notes
 
-- Extension IDs are **deterministic**: derived from the SHA-256 of the public key in the CRX. They cannot be changed without breaking the extension's update channel. This is the durable invariant.
-- Sideloaded / unpacked extensions get a random ID and won't match a bad-list. For those, **Query 1** on the folder pattern (without the `where ExtensionId in (BadExtensionIds)` filter) surfaces all extension installs for tenant-wide inventory.
-- Edge and Brave install Chrome Web Store extensions under their own `User Data` tree — Query 1 covers both.
-- A Microsoft Defender Vulnerability Management browser-extension inventory feature also exists (`DeviceTvmBrowserExtensions`, `DeviceTvmBrowserExtensionsKB`, `DeviceTvmBrowserExtensionsPermissionsInfo`) — useful as a complementary signal but populated less frequently than the raw telemetry above.
+- Extension IDs are **deterministic** — derived from the SHA-256 of the public key in the CRX. They cannot be rotated without breaking the extension's update channel. This is the durable invariant.
+- Sideloaded / unpacked extensions get a random ID and won't match a static bad-list. **Query 3** (inventory mode) is the answer for those — anomalous IDs on a tiny number of hosts.
+- Chrome / Edge / Brave / Vivaldi / Opera / Yandex / Chromium all share the same `User Data\…\Extensions\<id>` layout — the regex covers all of them.
+- For users running a **non-default Chrome profile** (`Profile 1`, `Profile 2`, …), the regex `.*` in the User Data segment handles every profile name.
 
 ## Coverage map
 
 | Campaign | IDs | Source |
 |---|---|---|
-| Socket — cloudapi.stream MaaS | 108 | https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2 |
+| Socket — cloudapi.stream MaaS | 109 | https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2 |
 | Unit 42 — Chrome MCP Server RAT | 1 | https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-02-11-IOCs-for-RAT-disguinsed-as-AI-based-browser-extension.txt |
 | Socket — VKfeed | 1 | https://thehackernews.com/2026/02/malicious-chrome-extensions-caught.html |
 | Socket — CL Suite by @CLMasters | 1 | https://thehackernews.com/2026/02/malicious-chrome-extensions-caught.html |
-| **Total** | **111** | |
+| **Total** | **112** | |
+
+## References
+
+- [MITRE ATT&CK T1176](https://attack.mitre.org/techniques/T1176/)
+- [DeviceFileEvents schema](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-devicefileevents-table)
+- [DeviceRegistryEvents schema](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-deviceregistryevents-table)
+- [`externaldata` operator](https://learn.microsoft.com/en-us/kusto/query/externaldata-operator)
