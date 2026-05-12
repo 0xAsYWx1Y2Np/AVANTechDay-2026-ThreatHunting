@@ -32,7 +32,7 @@ Signatures and IOCs rotate in days. Behaviour doesn't. This repo focuses on the 
 | :---: | :--- | :---: | :---: |
 | 🎯 Execution | ClickFix — RunMRU paste | [✓](CrowdStrike/ClickFix.md) | [✓](MicrosoftDefenderForEndpoint/ClickFix.md) |
 | 🔁 Persistence | Run/RunOnce key writes | [✓](CrowdStrike/RunKey.md) | [✓](MicrosoftDefenderForEndpoint/RunKey.md) |
-| 🔁 Persistence | Malicious Chrome extensions ⭐ | [✓](CrowdStrike/MaliciousChromeExtensions.md) | [✓](MicrosoftDefenderForEndpoint/MaliciousChromeExtensions.md) |
+| 🔁 Persistence | Malicious extensions ⭐ | [✓](CrowdStrike/MaliciousExtensions.md) | [✓](MicrosoftDefenderForEndpoint/MaliciousExtensions.md) |
 | 🥷 Defense Evasion | DLL sideloading pattern | [✓](CrowdStrike/DLLsideloading.md) | [✓](MicrosoftDefenderForEndpoint/DLLsideloading.md) |
 | 🥷 Defense Evasion | Malicious code-signing certs | [✓](CrowdStrike/MaliciousCodeSigningCert.md) | [✓](MicrosoftDefenderForEndpoint/MaliciousCodeSigningCert.md) |
 | 🔑 Credential Access | The Browser-Credential Chokepoint ⭐ | [✓](CrowdStrike/CredentialAccess.md) | [✓](MicrosoftDefenderForEndpoint/CredentialAccess.md) |
