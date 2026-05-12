@@ -62,7 +62,7 @@ AVANTechDay-2026-ThreatHunting/
 │   ├── ClickFix.md
 │   ├── RunKey.md
 │   ├── DLLsideloading.md
-│   ├── CredentialAccess.md               # 3 complementary surfaces (FileOpenInfo has no MDE equivalent)
+│   ├── CredentialAccess.md               
 │   ├── MaliciousCodeSigningCert.md
 │   ├── MaliciousExtensions.md
 │   └── UsingIOCFiles.md                  # how to wire the CSVs into externaldata
