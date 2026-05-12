@@ -5,6 +5,8 @@
 **Related:** [T1539](https://attack.mitre.org/techniques/T1539/) — Steal Web Session Cookie
 **Platform:** CrowdStrike Falcon (CQL / LogScale)
 
+---
+
 ## Hypothesis
 
 > **If a non-browser process opens `Login Data` — it's a stealer.**
@@ -16,6 +18,8 @@ Chrome, Edge, Firefox, Brave, and every Chromium-based browser store credentials
 - `Web Data` — autofill, credit cards, addresses
 
 The attacker **must** open these files to harvest browser credentials. There is no other path. Per [Splunk Threat Research, Jan 2026](https://www.splunk.com/en_us/blog/security/common-ttps-rats-malware-analysis.html), **11 of 18 documented stealer families** funnel through this chokepoint — Lumma, Vidar, RedLine, StealC, Phemedrone, Meduza, Braodo, Agent Tesla, Lokibot, and others.
+
+---
 
 ## Query
 
@@ -90,3 +94,9 @@ This single rule catches every stealer family that targets browser credentials, 
 - C2 protocol (Telegram, Discord, HTTPS, paste.rs)
 - Code-signing posture
 - Obfuscation level
+
+## Tuning
+
+- **Password managers** that integrate with browsers (1Password, Bitwarden, KeePassXC) may trigger — allowlist by `ContextBaseFileName`
+- **Backup software** reading user profiles wholesale — allowlist
+- **Security scanners** beyond MsMpEng — add your own AV/EDR
