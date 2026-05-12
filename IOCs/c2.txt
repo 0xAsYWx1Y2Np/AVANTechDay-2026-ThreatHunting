@@ -1,3 +1,4 @@
+# --- Original 17 C2 domains (Truesec / Expel / Heimdal / WithSecure) ---
 y2iax5.com
 5b7crp.com
 mka3e8.com
@@ -15,3 +16,24 @@ boholich.com
 ddl.dwnpdfoc.com
 runeton.com
 ununlikeize.com
+
+# --- Northwave (Aug 2025 – May 2026) — added 2026-05-12 ---
+# Source: https://northwave-cybersecurity.com/articles/indicators-of-compromise-iocs-identified-in-northwaves-malvertisement-investigation
+# Note: pdf.epibrowser.com / api.epibrowser.com are labelled "potential C2" by Northwave
+netarlio.com
+kalickofat.com
+notirino.com
+enilord.com
+ulinikio.com
+takelecon.com
+banifure.com
+hagalilk.com
+orluyafi.com
+comitoni.com
+eloknys.com
+mokliey.com
+salionb.com
+lolidwni.com
+oneoni.com
+pdf.epibrowser.com
+api.epibrowser.com

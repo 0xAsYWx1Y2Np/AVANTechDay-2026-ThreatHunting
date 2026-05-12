@@ -1,13 +1,25 @@
+# ==================================================================
+# Code-Signing Publishers — Shell-Company Authenticode Subjects
+# ==================================================================
+# Count: 55 canonical publishers
+#   45 original (Truesec / Expel / Heimdal / WithSecure / LindenSec)
+#   10 Northwave (added 2026-05-12)
+# ==================================================================
+# Casing kept as observed on the cert. Queries use:
+#   - CQL: match(file="code-signing.csv", ..., ignoreCase=true)
+#   - KQL: tolower() on both sides
+# ...so casing drift does not require maintaining variants here.
+# Punctuation IS significant — "Byte Media Sdn. Bhd." and
+# "BYTE MEDIA SDN BHD" are distinct strings for match().
+# ==================================================================
 
+# --- Original 45 (Truesec / Expel / Heimdal / WithSecure / LindenSec) ---
 ECHO INFINI SDN. BHD.
-Echo Infini Sdn Bhd.
-Echo Infini Sdn. Bhd.
 GLINT SOFTWARE SDN. BHD.
 GLINT By J SDN. BHD
 Lume Network Sdn Bhd
 Digital Promotions Sdn. Bhd.
-Summit Nexus Holdings LLC.
-SUMMIT NEXUS HOLDINGS LLC
+Summit Nexus Holdings LLC
 Apollo Technologies Inc.
 Caerus Media LLC
 Onestart Technologies LLC
@@ -15,10 +27,7 @@ CROWN SKY LLC
 Crowd Sync LLC
 A1A Marketing Ltd.
 Eclipse Media Inc.
-ECLIPSE MEDIA INC.
-Eclipse Media Inc
-Astral Media Inc
-ASTRAL MEDIA INC.
+Astral Media Inc.
 Interlink Media Inc.
 Millennial Media Inc.
 Blaze Media Inc.
@@ -26,6 +35,7 @@ Drake Media Inc
 INCREDIBLE MEDIA INC
 Realistic Media Inc.
 BYTE Media
+BYTE MEDIA SDN BHD
 AMARYLLIS SIGNAL LTD
 Sherlock Tech Ltd
 WHATECH MOBILE CO., LIMITED
@@ -34,3 +44,31 @@ Sorbet Live LTD
 BLUE TAKIN LTD
 CANDY TECH LTD
 Red Root LTD
+TAU CENTAURI LTD
+SPARROW TIDE LTD
+TECHNODENIS LTD
+BLACK INDIGO LTD
+LONG SOUND LTD
+OR KAHOL LTD
+ASTRO BRIGHT LTD
+MAINSTAY CRYPTO LLC
+GRASSROOTS CONSULTING GROUP LLC
+WORK PRODUCT INC
+PIXEL CATALYST MEDIA LLC
+GLOBAL TECH ALLIES LTD
+SIRIUS ONE LTD
+SELA LINES LTD
+BONY INNOVATION LTD
+
+# --- Northwave (Aug 2025 – May 2026) — added 2026-05-12 ---
+# Source: https://northwave-cybersecurity.com/articles/indicators-of-compromise-iocs-identified-in-northwaves-malvertisement-investigation
+International Holdings, LLC
+Monetize forward LLC
+Global Online Empire LLC
+Online Leonz LLC
+Byte Media Sdn. Bhd.
+Tropical RIiff Ltd
+Green Topaz LTD
+Eman Group LLC.
+Hawk Integrated Inc
+Astras Novei LTD

@@ -1,3 +1,14 @@
+# ==================================================================
+# Chrome Extension IDs — Malicious / Compromised
+# 112 unique IDs from 4 campaigns
+# ==================================================================
+# Human-readable. For tool consumption, use IOCs/csv/chrome-extensions.csv
+# (header + flat list of all 112 IDs).
+# ==================================================================
+
+# === Socket — cloudapi.stream MaaS (Apr 2026) — 109 IDs ===
+# Source: https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2
+# Note: Socket's title says 108; the actual catalog includes 109 IDs.
 obifanppcpchlehkjipahhphbcbjekfa
 mdcfennpfgkngnibjbpnpaafcjnhcjno
 mmecpiobcdbjkaijljohghhpfgngpjmk
@@ -44,6 +55,7 @@ fibgndhgobbaaekmnneapojgkcehaeac
 fjfhejmbhpabkacpoddjbcfandjoacmb
 flkdjodmoefccepdihipjdlianmkmhgc
 fmajpchoiahphjiligpmghnhmabolhoh
+fnmihdojmnkclgjpcoonokmkhjpjechg
 gaafhblhbnkekenogcjniofhbicchlke
 gbaoddbbpompjhmilbgiaapkkakldlpc
 gbhhgipmedccnankkjchgcidiigmioio
@@ -106,16 +118,19 @@ peflgkmfmoijonfgcjdlpnnfdegnlaji
 phfkdailnomcbcknpdmokejhellbecjb
 pkghgkfjhjghinikeanecbgjehojfhdg
 pllkanemicadpcmkfodglahcocfdgkhj
-fnmihdojmnkclgjpcoonokmkhjpjechg
 
 # === Unit 42 — RAT disguised as AI MCP browser control (Feb 2026) ===
-# "Chrome MCP Server - AI Browser Control" — WebSocket C2 wss://mcp-browser.qubecare[.]ai/chrome
+# "Chrome MCP Server - AI Browser Control"
+# WebSocket C2: wss://mcp-browser.qubecare[.]ai/chrome
+# Source: https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-02-11-IOCs-for-RAT-disguinsed-as-AI-based-browser-extension.txt
 fpeabamapgecnidibdmjoepaiehokgda
 
 # === Socket — VKfeed (Feb 2026) ===
 # Dead-drop payload resolver via vk.com/m0nda metadata
+# Source: https://thehackernews.com/2026/02/malicious-chrome-extensions-caught.html
 pcdgkgbadeggbnodegejccjffnoakcoh
 
 # === Socket — CL Suite by @CLMasters (Feb 2026) ===
 # Steals Meta Business Suite / Facebook Business Manager TOTP + business data
+# Source: https://thehackernews.com/2026/02/malicious-chrome-extensions-caught.html
 jkphinfhmfkckkcnifhjiplhfoiefffl
