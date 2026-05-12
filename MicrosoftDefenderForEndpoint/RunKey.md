@@ -1,73 +1,90 @@
-# Run/RunOnce Key Persistence
+# Run/RunOnce Key Persistence (KQL)
 
 **MITRE ATT&CK:** [T1547.001](https://attack.mitre.org/techniques/T1547/001/) — Registry Run Keys / Startup Folder
 **Tactic:** [TA0003](https://attack.mitre.org/tactics/TA0003/) — Persistence
-**Platform:** CrowdStrike Falcon (CQL / LogScale)
+**Platform:** Microsoft Defender XDR (KQL)
 
 ---
 
 ## Hypothesis
 
-InfoStealers persist via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (and `RunOnce`) to survive logoff / reboot. The attacker has multiple code paths to write this key — `reg.exe`, PowerShell `Set-ItemProperty`, .NET `Microsoft.Win32.Registry`, direct syscalls.
-
-**Two queries cover both surfaces:**
-
-- **Query 1** — catches the registry write itself, regardless of how it was triggered (the durable invariant)
-- **Query 2** — catches the explicit `reg.exe` invocation (the obvious path)
+InfoStealers persist via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (and `RunOnce`). Defender for Endpoint emits `DeviceRegistryEvents` for any registry write — capturing the durable artifact regardless of which process did the write.
 
 ---
 
-## Query 1 — `AsepValueUpdate` on Run / RunOnce with user-writable target
+## Query 1 — Any process writing Run / RunOnce with user-writable target
 
-CrowdStrike emits `AsepValueUpdate` whenever **any** Auto-Start Extensibility Point is written, regardless of the calling process. **This is the durable detection.** The path filter on `RegStringValue` cuts the bulk of legitimate installer noise (which writes to `Program Files` / `System32`).
-
-```java
-#event_simpleName=AsepValueUpdate
-| RegObjectName=/\\Software\\Microsoft\\Windows\\CurrentVersion\\Run(Once)?/i
-// Target value points to a user-writable path
-| RegStringValue=/(?i)\\(Users\\Public|Users\\[^\\]+\\(AppData|Downloads|Desktop)|ProgramData|Windows\\Temp)\\/
-| table([@timestamp, ComputerName, UserName, RegObjectName, RegValueName, RegStringValue])
-| sort(@timestamp, order=desc)
+```kql
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has_any (
+    @"Software\Microsoft\Windows\CurrentVersion\Run",
+    @"Software\Microsoft\Windows\CurrentVersion\RunOnce"
+  )
+// Suspicious indicator: value points to a user-writable path
+| where RegistryValueData matches regex @"(?i)\\(Users\\[^\\]+\\(AppData|Downloads|Desktop)|Users\\Public|ProgramData|Windows\\Temp)\\"
+| project
+    Timestamp,
+    DeviceName,
+    InitiatingProcessAccountName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData
+| sort by Timestamp desc
 ```
 
-## Query 1B — `AsepValueUpdate` on Run / RunOnce (no path filter, inventory mode)
+## Query 1B — Inventory mode (no path filter)
 
-Run as a daily inventory; allowlist the legit patterns (`OneDriveSetup`, `MicrosoftEdgeAutoLaunch_*`, `iCloudServices`, vendor updater patterns); promote anything else to Query 1.
+Run as a daily inventory. Allowlist legit patterns (`OneDriveSetup`, `MicrosoftEdgeAutoLaunch_*`, vendor updaters); promote anything else to Query 1.
 
-```java
-#event_simpleName=AsepValueUpdate
-| RegObjectName=/\\Software\\Microsoft\\Windows\\CurrentVersion\\Run(Once)?/i
-| groupBy([RegValueName, RegStringValue, ComputerName],
-          function=[count(as=Hits), min(@timestamp, as=FirstSeen), max(@timestamp, as=LastSeen)])
-| sort(FirstSeen, order=desc)
+```kql
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has_any (
+    @"Software\Microsoft\Windows\CurrentVersion\Run",
+    @"Software\Microsoft\Windows\CurrentVersion\RunOnce"
+  )
+| summarize Hits = count(),
+            FirstSeen = min(Timestamp),
+            LastSeen = max(Timestamp),
+            Devices = make_set(DeviceName, 20)
+    by RegistryValueName, RegistryValueData
+| sort by FirstSeen desc
 ```
 
-## Query 2 — `reg.exe` modifying Run / RunOnce
+## Query 2 — `reg.exe` modifying Run / RunOnce (process angle)
 
-Catches the explicit `reg.exe add` / `reg.exe delete` invocation. Misses every other write path — but the command line is great for investigation.
-
-```java
-#event_simpleName=ProcessRollup2
-| ImageFileName=/\\reg\.exe$/i
-| CommandLine=/\b(add|delete)\b/i
-| CommandLine=/\\Software\\Microsoft\\Windows\\CurrentVersion\\Run(Once)?/i
-| table([@timestamp, ComputerName, UserName, ParentBaseFileName, CommandLine])
-| sort(@timestamp, order=desc)
+```kql
+DeviceProcessEvents
+| where Timestamp > ago(30d)
+| where FileName =~ "reg.exe"
+| where ProcessCommandLine matches regex @"(?i)\b(add|delete)\b"
+| where ProcessCommandLine matches regex @"(?i)\\Software\\Microsoft\\Windows\\CurrentVersion\\Run(Once)?"
+| project
+    Timestamp,
+    DeviceName,
+    AccountName,
+    InitiatingProcessFileName,
+    ProcessCommandLine
+| sort by Timestamp desc
 ```
 
 ---
 
 ## Why this works
 
-- **`AsepValueUpdate` is sensor-side** — fires regardless of which userland process did the write
-- **Path-based suspicion filter** in Query 1 reduces installer noise without sacrificing coverage
-- **`reg.exe` Query 2** captures the cmdline context for investigation
+- **`DeviceRegistryEvents` is sensor-side** — fires regardless of which userland process did the write
+- **Path-based suspicion filter** in Query 1 reduces noise without losing real stealer drops
 
 ## Tuning
 
 - Expect noise from legitimate installers — baseline with a 30-day rolling FP review
-- Allowlist known-good `RegValueName` patterns (e.g., `OneDriveSetup`, `MicrosoftEdgeAutoLaunch_*`)
-- For Defender XDR equivalent, see [`MicrosoftDefenderForEndpoint/RunKey.md`](../MicrosoftDefenderForEndpoint/RunKey.md)
+- Allowlist known-good `RegistryValueName` patterns (e.g., `OneDriveSetup`, `MicrosoftEdgeAutoLaunch_*`)
+- For CrowdStrike equivalent, see [`CrowdStrike/RunKey.md`](../CrowdStrike/RunKey.md)
 
 ## References
 
