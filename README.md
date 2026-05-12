@@ -55,8 +55,8 @@ AVANTechDay-2026-ThreatHunting/
 │   ├── DLLsideloading.md
 │   ├── CredentialAccess.md
 │   ├── MaliciousCodeSigningCert.md
-│   ├── MaliciousChromeExtensions.md      ← NEW
-│   └── UsingIOCFiles.md                  ← NEW · feed IOCs/*.txt into match()
+│   ├── MaliciousChromeExtensions.md      ← 
+│   └── UsingIOCFiles.md                  ← feed IOCs/*.txt into match()
 │
 ├── 📁 MicrosoftDefenderForEndpoint/      ← KQL queries (Defender XDR / Sentinel)
 │   ├── ClickFix.md
@@ -64,8 +64,8 @@ AVANTechDay-2026-ThreatHunting/
 │   ├── DLLsideloading.md
 │   ├── CredentialAccess.md
 │   ├── MaliciousCodeSigningCert.md
-│   ├── MaliciousChromeExtensions.md      ← NEW
-│   └── UsingIOCFiles.md                  ← NEW · feed IOCs/*.txt into externaldata()
+│   ├── MaliciousChromeExtensions.md      ← 
+│   └── UsingIOCFiles.md                  ← feed IOCs/*.txt into externaldata()
 │
 ├── 📁 Sigma/                             ← cross-platform Sigma rules
 │   └── dcsync_nonmachine.yml
