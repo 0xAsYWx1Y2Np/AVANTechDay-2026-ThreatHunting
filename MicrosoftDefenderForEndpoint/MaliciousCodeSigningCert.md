@@ -8,72 +8,116 @@
 
 ## Hypothesis
 
-Attackers obtain valid Authenticode certificates from CAs by registering shell companies in jurisdictions like Panama, Malaysia, Hong Kong, the UK, and the US. Per Expel's research, the **BaoLoader** developer alone has cycled through at least **26 code-signing certificates** in 7 years.
+Attackers obtain valid Authenticode certificates from CAs by registering shell companies in jurisdictions like Panama, Malaysia, Hong Kong, the UK, and the US. The certificate is technically valid, but the publisher is a paper company that exists only on the certificate.
 
-> **Note:** The `Signer`, `SignerHash`, and `IsRootSignerMicrosoft` columns exist **only** on `DeviceFileCertificateInfo` — they are not directly available on `DeviceProcessEvents` or `DeviceImageLoadEvents`. Always join via `SHA1` with `arg_max` to avoid fan-out on multiple cert observations per binary.
+Per Expel's research, the **BaoLoader** developer alone has cycled through at least **26 code-signing certificates** in 7 years. The canonical publisher list lives in [`IOCs/code-signing.txt`](../IOCs/code-signing.txt) (45 entries) and [`IOCs/csv/code-signing.csv`](../IOCs/csv/code-signing.csv).
 
-## Query 1 — Block-list of known-bad publishers
+---
 
-```java
-let SuspiciousSigners = dynamic([
-    "ECHO INFINI SDN. BHD.","GLINT SOFTWARE SDN. BHD.","Summit Nexus Holdings LLC",
-    "Apollo Technologies Inc.","Caerus Media LLC","Onestart Technologies LLC",
-    "Digital Promotions Sdn. Bhd.","Eclipse Media Inc.","Astral Media Inc",
-    "Interlink Media Inc.","Millennial Media Inc.","Blaze Media Inc.",
-    "Drake Media Inc","Incredible Media Inc","Realistic Media Inc.",
-    "Amaryllis Signal Ltd","Sherlock Tech Ltd","Whatech Mobile Co., Limited",
-    "My Tech Media Ltd","Sorbet Live Ltd","Blue Takin Ltd","Candy Tech Ltd",
-    "Red Root Ltd","A1A Marketing Ltd.","Crown Sky LLC","Crowd Sync LLC",
-    "Byte Media","BYTE MEDIA SDN BHD","Lume Network Sdn Bhd","TAU CENTAURI LTD",
-    "SPARROW TIDE LTD","TECHNODENIS LTD","BLACK INDIGO LTD","LONG SOUND LTD",
-    "OR KAHOL LTD","ASTRO BRIGHT LTD","MAINSTAY CRYPTO LLC",
-    "GRASSROOTS CONSULTING GROUP LLC","WORK PRODUCT INC","PIXEL CATALYST MEDIA LLC",
-    "GLOBAL TECH ALLIES LTD","SIRIUS ONE LTD","SELA LINES LTD","BONY INNOVATION LTD"
-]);
-let SuspiciousBinaries =
-    DeviceFileCertificateInfo
-    | where Timestamp > ago(30d)
-    | where Signer in~ (SuspiciousSigners)
-    | where IsRootSignerMicrosoft == false
-    | summarize arg_max(Timestamp, Signer, SignerHash, IsTrusted, IsSigned) by SHA1;
-DeviceProcessEvents
+## Query 1 — Block-list via `externaldata` (recommended)
+
+Use [`externaldata`](https://learn.microsoft.com/en-us/kusto/query/externaldata-operator) to read the canonical CSV directly from GitHub on each query run. Single source of truth — edit the CSV, the query picks up new entries.
+
+```kql
+let BadSigners =
+    externaldata(signer: string)
+    [@"https://raw.githubusercontent.com/0xAsYWx1Y2Np/AVANTechDay-2026-ThreatHunting/main/IOCs/csv/code-signing.csv"]
+    with (format="csv", ignoreFirstRecord=true)
+    | project signer = tolower(trim(@"\s+", signer))
+    | summarize by signer;
+DeviceFileCertificateInfo
 | where Timestamp > ago(30d)
-| where isnotempty(SHA1)
-| project Timestamp, DeviceName, AccountName, FileName, FolderPath, SHA1, SHA256
-| join kind=innerunique hint.shufflekey=SHA1 SuspiciousBinaries on SHA1
-| project Timestamp, DeviceName, AccountName, FileName, FolderPath,
-          Signer, SignerHash, IsTrusted, SHA256
+| where IsSigned == true
+| extend SignerLower = tolower(trim(@"\s+", Signer))
+| where SignerLower in (BadSigners)
+| project Timestamp, DeviceName, Signer, Issuer, SignatureType,
+          IsTrusted, IsRootSignerMicrosoft, CertificateExpirationTime,
+          SHA1
 | sort by Timestamp desc
 ```
 
-## Query 2 — First-seen publisher anomaly
+Lower-casing both sides ensures `ECHO INFINI SDN. BHD.` matches `echo infini sdn. bhd.` — handles CA-side casing drift without maintaining variants. This is the KQL equivalent of LogScale's `match(ignoreCase=true)`.
 
-```java
-let baseline =
+## Query 2 — Block-list hit → process execution pivot
+
+```kql
+let BadSigners =
+    externaldata(signer: string)
+    [@"https://raw.githubusercontent.com/0xAsYWx1Y2Np/AVANTechDay-2026-ThreatHunting/main/IOCs/csv/code-signing.csv"]
+    with (format="csv", ignoreFirstRecord=true)
+    | project signer = tolower(trim(@"\s+", signer))
+    | summarize by signer;
+let SuspectHashes =
     DeviceFileCertificateInfo
-    | where Timestamp between (ago(120d) .. ago(30d))
-    | where isnotempty(Signer)
-    | summarize baseline_count = count() by Signer
-    | where baseline_count > 5
-    | project Signer;
+    | where Timestamp > ago(30d)
+    | where IsSigned == true
+    | extend SignerLower = tolower(trim(@"\s+", Signer))
+    | where SignerLower in (BadSigners)
+    | summarize arg_max(Timestamp, Signer, Issuer) by SHA1;
 DeviceProcessEvents
-| where Timestamp > ago(7d)
-| where FolderPath matches regex @"(?i)\\(Users\\[^\\]+\\(AppData|Downloads|Desktop)|Users\\Public|ProgramData|Windows\\Temp)\\"
-| join kind=inner (
-    DeviceFileCertificateInfo
-    | where Timestamp > ago(7d)
-    | where isnotempty(Signer)
-    | summarize arg_max(Timestamp, Signer, IsSigned, IsTrusted) by SHA1
-) on SHA1
-| where Signer !in (baseline)
-| summarize
-    ExecutionCount = count(),
-    UniqueDevices = dcount(DeviceName),
-    UniqueBinaries = dcount(SHA1),
-    FirstSeen = min(Timestamp),
-    LastSeen = max(Timestamp),
-    SampleFiles = make_set(FileName, 10),
-    IsTrusted = any(IsTrusted)
-    by Signer
-| sort by UniqueDevices desc, ExecutionCount desc
+| where Timestamp > ago(30d)
+| where isnotempty(SHA1)
+| lookup kind=inner SuspectHashes on SHA1
+| project Timestamp, DeviceName, AccountName, InitiatingProcessFileName,
+          FileName, FolderPath, ProcessCommandLine, Signer, Issuer, SHA1
+| sort by Timestamp desc
 ```
+
+---
+
+## Query 3 — First-seen publisher anomaly (the durable detection)
+
+Runs with a 30-day baseline and surfaces publishers first observed inside the last 7 days. The block-list catches *known* bad publishers; this query catches tomorrow's shell-company.
+
+Suppression filters keep one-off ISV-update noise out without blunting coverage:
+- `ModuleLoads > 1` — strip single-observation flukes
+- `UniqueDevices >= 2` — strip per-device personal-software installs
+- `UniqueBinaries > 1` — a single hash signed by a brand-new publisher is often a legitimate vendor update; multiple distinct binaries from one new publisher in user-writable paths is the stealer pattern
+
+```kql
+let Baseline =
+    DeviceFileCertificateInfo
+    | where Timestamp between (ago(30d) .. ago(30d))
+    | where IsSigned == true
+    | summarize by Signer;
+DeviceFileCertificateInfo
+| where Timestamp > ago(30d)
+| where IsSigned == true
+| where isnotempty(Signer)
+| where Issuer !contains "Microsoft Windows" and Issuer !contains "Microsoft Code Signing" and Issuer !contains "Microsoft Root" and Issuer !contains "Microsoft Time-Stamp"
+| where not(Signer in (Baseline))
+| join kind=inner (
+    DeviceProcessEvents
+    | where Timestamp > ago(30d)
+    | where FolderPath matches regex @"(?i)\\(Users\\[^\\]+\\(AppData|Downloads|Desktop)|Users\\Public|ProgramData|Windows\\Temp)\\"
+    | project SHA1, DeviceId, FolderPath, FileName
+  ) on SHA1
+| summarize FirstSeen = min(Timestamp),
+            LastSeen = max(Timestamp),
+            ModuleLoads = count(),
+            UniqueDevices = dcount(DeviceId),
+            UniqueBinaries = dcount(SHA1),
+            SampleFiles = make_set(FileName, 10),
+            SampleIssuers = make_set(Issuer, 5),
+            SampleDevices = make_set(DeviceId, 10)
+    by Signer
+| where ModuleLoads > 1 and UniqueDevices >= 2 and UniqueBinaries > 1
+| sort by UniqueDevices desc
+```
+
+---
+
+## Why this works
+
+- **Shell-company names are reused** — once burned, the same operator often re-registers similar names
+- **Block-list via `externaldata`** — single source of truth, zero query edits when the list changes
+- **First-seen publisher anomaly** is a generic detection — works for unknown future campaigns
+- **Suppression filters** kill one-off vendor-update noise without blunting coverage of real stealer patterns`
+
+## References
+
+- [MITRE ATT&CK T1553.002](https://attack.mitre.org/techniques/T1553/002/)
+- [Expel — The certs of the BaoLoader developer](https://expel.com/blog/the-history-of-appsuite-the-certs-of-the-baoloader-developer/)
+- [DeviceFileCertificateInfo schema](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-devicefilecertificateinfo-table)
+- [`externaldata` operator](https://learn.microsoft.com/en-us/kusto/query/externaldata-operator)
+- [`UsingIOCFiles.md`](UsingIOCFiles.md) — how to feed CSVs into KQL
