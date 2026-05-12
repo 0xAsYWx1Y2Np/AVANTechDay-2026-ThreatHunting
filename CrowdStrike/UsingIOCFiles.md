@@ -50,8 +50,8 @@ Hashes are split by length so each CSV maps cleanly to a single Falcon field —
 
 ## Step 1 — Upload via Falcon Console (one-time, manual path)
 
-1. Falcon Console → **Next-Gen SIEM** → **Files** → **Add file**
-2. Pick each `.csv` from `IOCs/csv/`, set the **Repository** scope (or **Shared** if you want it visible across every repo)
+1. Falcon Console → **Next-Gen SIEM** → **Lookup files** → **Create file** → **Import file**
+2. Pick each `.csv` from `IOCs/csv/`, set the **Repository** scope (or **All** if you want it visible across every repo)
 3. Save with the same filename — LogScale auto-detects the header column
 
 ---
