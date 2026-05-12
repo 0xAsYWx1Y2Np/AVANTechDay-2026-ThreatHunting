@@ -1,4 +1,4 @@
-# Using the `IOCs/*.csv` files in CQL hunts
+# Using the `IOCs/csv/*.csv` files in CQL hunts
 
 **Platform:** CrowdStrike Falcon (CQL / LogScale / Next-Gen SIEM)
 
@@ -19,7 +19,7 @@ Neither operator accepts a URL. There is no inline HTTP fetcher in CQL.
 
 LogScale exposes a [**Files API**](https://library.humio.com/logscale-api/api-lookup.html) (cloud and self-hosted) that lets you `POST` a CSV and have it replace an existing lookup of the same name. Combine that with a GitHub Action triggered on commits to `IOCs/csv/**` and you get the same end-state as `externaldata`:
 
-```txt
+```text
 git push  →  GitHub Action  →  LogScale Files API  →  match() picks up new IOCs on next run
 ```
 
@@ -33,16 +33,14 @@ All eight live in [`IOCs/csv/`](../IOCs/csv/), each with a one-column header so 
 
 | CSV | Column | Rows | LogScale event | LogScale field |
 | :--- | :--- | ---: | :--- | :--- |
-| `code-signing.csv` | `signer` | 51 | `Event_ModuleSummaryInfoEvent` | `SubjectCN` |
-| `chrome-extensions.csv` | `extension_id` | 111 | `DirectoryCreate` (also `RegSystemConfigValueUpdate`, `HttpRequest` for force-install / CRX download paths) | `FileName` directly (also extracted from `RegStringValue` / `HttpUrl` via regex) |
-| `domains.csv` | `domain` | 130 | `DnsRequest`, `HttpRequest` | `DomainName`, `HttpHost` |
+| `code-signing.csv` | `signer` | 45 | `Event_ModuleSummaryInfoEvent` | `SubjectCN` |
+| `chrome-extensions.csv` | `extension_id` | 112 | `DirectoryCreate` (also `RegSystemConfigValueUpdate`, `HttpRequest` for force-install / CRX download paths) | `FileName` directly (also extracted from `RegStringValue` / `HttpUrl` via regex) |
+| `domains.csv` | `domain` | 133 | `DnsRequest`, `HttpRequest` | `DomainName`, `HttpHost` |
 | `c2.csv` | `domain` | 17 | `DnsRequest`, `HttpRequest` | `DomainName`, `HttpHost` |
 | `ips.csv` | `ip` | 13 | `NetworkConnectIP4` / `IP6` | `RemoteAddressIP4` / `IP6` |
 | `hashes-sha256.csv` | `sha256` | 131 | `ProcessRollup2` | `SHA256HashData` |
 | `hashes-sha1.csv` | `sha1` | 32 | `ProcessRollup2` | `SHA1HashData` |
 | `hashes-md5.csv` | `md5` | 1 | `ProcessRollup2` | `MD5HashData` |
-
-> **Code-signing schema note:** Signer subject/issuer data is on `Event_ModuleSummaryInfoEvent` (module-load summary) — fields `SubjectCN` and `IssuerCN`. It is **not** on `ProcessRollup2`. There is no `AuthenticodeAccount` field in CrowdStrike telemetry. To pivot from a signer hit to process execution context, join `SHA256HashData` against `ProcessRollup2`.
 
 Hashes are split by length so each CSV maps cleanly to a single Falcon field — `match()` has no single-column-against-three-fields shorthand, and splitting beats an `OR` across `SHA256HashData / SHA1HashData / MD5HashData`.
 
@@ -51,7 +49,7 @@ Hashes are split by length so each CSV maps cleanly to a single Falcon field —
 ## Step 1 — Upload via Falcon Console (one-time, manual path)
 
 1. Falcon Console → **Next-Gen SIEM** → **Lookup files** → **Create file** → **Import file**
-2. Pick each `.csv` from `IOCs/csv/`, set the **Repository** scope (or **All** if you want it visible across every repo)
+2. Pick each `.csv` from `IOCs/csv/`, set the **Repository** scope (or **Shared** if you want it visible across every repo)
 3. Save with the same filename — LogScale auto-detects the header column
 
 ---
@@ -62,8 +60,6 @@ Hashes are split by length so each CSV maps cleanly to a single Falcon field —
 
 ### Code-signing — block-list of bad publishers
 
-Module-load summary event is the right source. Returns the file/host plus the issuer (which is the TamperedChef/EvilAI tell at a glance: Certum EV, SSL.com EV, GlobalSign GCC R45 EV, Microsoft Trusted Signing).
-
 ```java
 #event_simpleName=Event_ModuleSummaryInfoEvent
 | SubjectCN=*
@@ -73,8 +69,6 @@ Module-load summary event is the right source. Returns the file/host plus the is
 ```
 
 ### Code-signing → execution pivot (one-shot join)
-
-Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed binary, with what command line, under which user.
 
 ```java
 #event_simpleName=ProcessRollup2
@@ -95,10 +89,8 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 
 ### Chrome extensions — bad-ID extension folder created
 
-`DirectoryCreate` fires once per extension install; the new directory's `FileName` *is* the 32-char extension ID — no regex extraction needed.
-
 ```java
-#event_simpleName=DirectoryCreate event_platform=Win
+#event_simpleName=DirectoryCreate 
 | FilePath=/(?i)\\(Google\\Chrome|Microsoft\\Edge|BraveSoftware\\Brave-Browser|Chromium|Vivaldi|Opera\sSoftware|Yandex)\\/
 | FilePath=/(?i)\\Extensions\\?$/i
 | FileName=/^[a-p]{32}$/
@@ -113,7 +105,7 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 ### Lure domains — DNS / HTTP lookups against the PDF-tool cluster
 
 ```java
-#event_simpleName=/^(DnsRequest|HttpRequest)$/ event_platform=Win
+#event_simpleName=/^(DnsRequest|HttpRequest)$/ 
 | DomainName=*
 | match(file="domains.csv", column="domain", field=DomainName, strict=true, ignoreCase=true)
 | table([@timestamp, ComputerName, UserName, DomainName, ContextBaseFileName, ContextImageFileName])
@@ -123,7 +115,7 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 ### C2 domains — same shape, separate file so you can promote sooner
 
 ```java
-#event_simpleName=/^(DnsRequest|HttpRequest)$/ event_platform=Win
+#event_simpleName=/^(DnsRequest|HttpRequest)$/ 
 | DomainName=*
 | match(file="c2.csv", column="domain", field=DomainName, strict=true, ignoreCase=true)
 | Severity := "HIGH"
@@ -134,7 +126,7 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 ### IPs — outbound connections to known infrastructure
 
 ```java
-#event_simpleName=NetworkConnectIP4 event_platform=Win
+#event_simpleName=NetworkConnectIP4 
 | RemoteAddressIP4=*
 | match(file="ips.csv", column="ip", field=RemoteAddressIP4, strict=true)
 | table([@timestamp, ComputerName, UserName, RemoteAddressIP4, RemotePort, ContextBaseFileName, ContextImageFileName])
@@ -147,7 +139,7 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 
 ```java
 // SHA-256 — 131 entries
-#event_simpleName=ProcessRollup2 event_platform=Win
+#event_simpleName=ProcessRollup2
 | SHA256HashData=*
 | match(file="hashes-sha256.csv", column="sha256", field=SHA256HashData, strict=true, ignoreCase=true)
 | table([@timestamp, ComputerName, UserName, FileName, FilePath, CommandLine, SHA256HashData])
@@ -156,7 +148,7 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 
 ```java
 // SHA-1 — 32 entries
-#event_simpleName=ProcessRollup2 event_platform=Win
+#event_simpleName=ProcessRollup2
 | SHA1HashData=*
 | match(file="hashes-sha1.csv", column="sha1", field=SHA1HashData, strict=true, ignoreCase=true)
 | table([@timestamp, ComputerName, UserName, FileName, FilePath, CommandLine, SHA1HashData])
@@ -165,7 +157,7 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 
 ```java
 // MD5 — 1 entry, included for completeness
-#event_simpleName=ProcessRollup2 event_platform=Win
+#event_simpleName=ProcessRollup2
 | MD5HashData=*
 | match(file="hashes-md5.csv", column="md5", field=MD5HashData, strict=true, ignoreCase=true)
 | table([@timestamp, ComputerName, UserName, FileName, FilePath, CommandLine, MD5HashData])
@@ -174,10 +166,8 @@ Same lookup, but joins back to `ProcessRollup2` so you see who ran the signed bi
 
 ### Hash hit → signer enrichment (optional add-on)
 
-Want the signer info on a hash-list hit? Join with `Event_ModuleSummaryInfoEvent`:
-
 ```java
-#event_simpleName=ProcessRollup2 event_platform=Win
+#event_simpleName=ProcessRollup2
 | SHA256HashData=*
 | match(file="hashes-sha256.csv", column="sha256", field=SHA256HashData, strict=true, ignoreCase=true)
 | join(
@@ -222,7 +212,7 @@ For **shared** lookup files (visible across all repos), the endpoint is `/api/v1
 
 ### Option C — `falconpy` (Foundry LogScale)
 
-If you live in the Falcon API ecosystem already, [`falconpy`](https://www.falconpy.io/Service-Collections/Foundry-LogScale.html) wraps the same endpoints via `CreateFileV1` / `UpdateFileV1`. Useful when you want to share auth with other Falcon automation.
+If you live in the Falcon API ecosystem already, [`falconpy`](https://www.falconpy.io/Service-Collections/Foundry-LogScale.html) wraps the same endpoints via `CreateFileV1` / `UpdateFileV1`.
 
 ---
 
@@ -323,5 +313,4 @@ Then wrap with `in()`:
 - [LogScale Lookup API](https://library.humio.com/logscale-api/api-lookup.html) — upload/replace/delete endpoints
 - [Lookup Files concept](https://library.humio.com/data-analysis/repositories-files-ui.html) — UI walkthrough, sync behavior across cluster nodes
 - [`match()` function](https://library.humio.com/data-analysis/functions-match.html) — query-side usage
-- [Falcon NG-SIEM lookup tables tutorial](https://www.crowdstrike.com/tech-hub/ng-siem/falcon-next-gen-siem-creating-a-lookup-table-with-3rd-party-data-for-automated-enrichment/) — Spamhaus ASN-DROP worked example
 - [`falconpy` Foundry LogScale](https://www.falconpy.io/Service-Collections/Foundry-LogScale.html) — Python SDK wrapping the same endpoints
