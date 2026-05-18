@@ -59,6 +59,7 @@ GLOBAL TECH ALLIES LTD
 SIRIUS ONE LTD
 SELA LINES LTD
 BONY INNOVATION LTD
+Global Online Empire LLC
 
 # --- Northwave (Aug 2025 – May 2026) — added 2026-05-12 ---
 # Source: https://northwave-cybersecurity.com/articles/indicators-of-compromise-iocs-identified-in-northwaves-malvertisement-investigation
